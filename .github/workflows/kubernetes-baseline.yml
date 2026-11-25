@@ -1,5 +1,8 @@
 name: Kubernetes recovery baseline
 on:
+  push:
+    branches:
+      - research/kubernetes-baseline
   pull_request:
     paths:
       - 'experiments/008-kubernetes-recovery/**'
@@ -11,12 +14,12 @@ jobs:
   baseline:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    env:
-      KUBECONFIG: ${{ runner.temp }}/recourse-kubeconfig
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           persist-credentials: false
+      - name: Configure isolated kubeconfig
+        run: echo "KUBECONFIG=$RUNNER_TEMP/recourse-kubeconfig" >> "$GITHUB_ENV"
       - name: Install verified kind release
         shell: bash
         run: |
