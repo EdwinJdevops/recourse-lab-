@@ -1,0 +1,79 @@
+name: Kubernetes recovery baseline
+on:
+  pull_request:
+    paths:
+      - 'experiments/008-kubernetes-recovery/**'
+      - 'experiments/009-interrupted-recovery/**'
+      - 'experiments/010-observation-race/**'
+      - 'experiments/011-velero/**'
+      - '.github/workflows/kubernetes-baseline.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  baseline:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Configure isolated kubeconfig
+        run: echo "KUBECONFIG=$RUNNER_TEMP/recourse-kubeconfig" >> "$GITHUB_ENV"
+      - name: Install verified kind release
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          base=https://github.com/kubernetes-sigs/kind/releases/download/v0.27.0
+          curl --fail --silent --show-error --location --retry 3 "$base/kind-linux-amd64" -o kind-linux-amd64
+          curl --fail --silent --show-error --location --retry 3 "$base/kind-linux-amd64.sha256sum" -o kind-linux-amd64.sha256sum
+          sha256sum -c kind-linux-amd64.sha256sum
+          install -m 0755 kind-linux-amd64 "$RUNNER_TEMP/kind"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Create isolated cluster
+        run: kind create cluster --name recourse --wait 120s
+      - name: Record environment and execute
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          git rev-parse HEAD > evidence/commit.txt
+          kind version > evidence/kind.txt
+          kubectl version -o json > evidence/kubernetes.json
+          python3 --version > evidence/python.txt
+          python3 experiments/008-kubernetes-recovery/lab.py 2>&1 | tee evidence/execution.log
+      - name: Execute interruption experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/009-interrupted-recovery/lab.py 2>&1 | tee evidence/execution-009.log
+      - name: Execute observation race experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/010-observation-race/lab.py 2>&1 | tee evidence/execution-010.log
+      - name: Execute Velero restore policy comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/011-velero/lab.sh 2>&1 | tee evidence/execution-011.log
+      - name: Collect evidence
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p evidence
+          if test -f evidence-008.json; then cp evidence-008.json evidence/; fi
+          if test -f evidence-009.json; then cp evidence-009.json evidence/; fi
+          if test -f evidence-010.json; then cp evidence-010.json evidence/; fi
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 -r sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: recourse-integration-evidence
+          path: evidence/
+          retention-days: 14
+      - name: Delete cluster
+        if: always()
+        run: |
+          if command -v kind >/dev/null; then kind delete cluster --name recourse; fi
