@@ -5,6 +5,7 @@ on:
       - 'experiments/008-kubernetes-recovery/**'
       - 'experiments/009-interrupted-recovery/**'
       - 'experiments/010-observation-race/**'
+      - 'experiments/011-velero/**'
       - '.github/workflows/kubernetes-baseline.yml'
   workflow_dispatch:
 permissions:
@@ -12,7 +13,7 @@ permissions:
 jobs:
   baseline:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
@@ -52,6 +53,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 experiments/010-observation-race/lab.py 2>&1 | tee evidence/execution-010.log
+      - name: Execute Velero restore policy comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash experiments/011-velero/lab.sh 2>&1 | tee evidence/execution-011.log
       - name: Collect evidence
         if: always()
         shell: bash
